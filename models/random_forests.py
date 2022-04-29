@@ -1,5 +1,6 @@
 import os
 from re import X
+from tkinter import Grid
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -107,9 +108,6 @@ x_test["interactionAmentities3"] = x_test["FoodCourt"] * \
 x_test["interactionAmentities4"] = x_test["FoodCourt"] * \
     x_test["VRDeck"]
 
-
-# HomePlanet,CryoSleep,Cabin,Destination,Age,VIP,
-# RoomService,FoodCourt,ShoppingMall,Spa,VRDeck,Name
 feature_names = x_train.columns
 print("Number of features: ", len(feature_names))
 
@@ -117,44 +115,37 @@ imputer = SimpleImputer()
 x_train = imputer.fit_transform(x_train)
 x_test = imputer.fit_transform(x_test)
 
-# # Age, RoomService, FoodCourt, ShoppingMall, Spa, VRDeck
 x_train = pd.DataFrame(data=x_train, columns=feature_names)
 x_test = pd.DataFrame(data=x_test, columns=feature_names)
 
-x_train_float = x_train[float_features]
+# x_train_float = x_train[float_features]
 
-scaler = StandardScaler()
-for i in float_features:
-    x_train[i] = scaler.fit_transform(x_train[[i]])
-    x_test[i] = scaler.fit_transform(x_test[[i]])
+# scaler = StandardScaler()
+# for i in float_features:
+#     x_train[i] = scaler.fit_transform(x_train[[i]])
+#     x_test[i] = scaler.fit_transform(x_test[[i]])
 
-x_train = x_train.drop(columns=["Spa", "VRDeck", "ShoppingMall"])
-x_test = x_test.drop(columns=["Spa", "VRDeck", "ShoppingMall"])
+# x_train = x_train.drop(columns=["Spa", "VRDeck", "ShoppingMall"])
+# x_test = x_test.drop(columns=["Spa", "VRDeck", "ShoppingMall"])
 
 feature_names = x_train.columns
 
 X_train, X_test, Y_train, Y_test = train_test_split(
     x_train, y_train, test_size=0.3, random_state=42)
 
-model = RandomForestClassifier(
-    n_estimators=1000, n_jobs=-1, random_state=42, max_depth=9)
+# sfs = SequentialFeatureSelector(
+#     model, n_features_to_select=10, direction="forward", n_jobs=-1)
+# sfs.fit(X_train, Y_train)
 
-sfs = SequentialFeatureSelector(
-    model, n_features_to_select=10, direction="forward", n_jobs=-1)
-sfs.fit(X_train, Y_train)
+# mask = sfs.get_support()
+# features_chosen_mask = feature_names[mask]
+# features_chosen = [feature
+#                    for feature in features_chosen_mask]
+# print("Features chosen: ", features_chosen)
 
-mask = sfs.get_support()
-print(mask)
-features_chosen_mask = feature_names[mask]
-features_chosen = [feature
-                   for feature in features_chosen_mask]
-print("Features chosen: ", features_chosen)
-# 'CryoSleep', 'RoomService', 'FoodCourt', 'ShoppingMall', 'Spa', 'VRDeck' < - FSS
-# 'Destination', 'RoomService', 'FoodCourt', 'ShoppingMall', 'Spa', 'VRDeck' < - BSS
-
-X_train = sfs.transform(X_train)
-X_test = sfs.transform(X_test)
-x_test = sfs.transform(x_test)
+# X_train = sfs.transform(X_train)
+# X_test = sfs.transform(X_test)
+# x_test = sfs.transform(x_test)
 
 # selector = SelectKBest(k=14, score_func=f_classif)
 # print("SelectKBest with k=", selector.get_params()["k"])
@@ -164,16 +155,18 @@ x_test = sfs.transform(x_test)
 # X_test = selector.transform(X_test)
 # x_test = selector.transform(x_test)
 
+selected_features_FSS = ['CryoSleep', 'RoomService',
+                         'FoodCourt', 'ShoppingMall', 'Spa', 'VRDeck']
+
+X_train = X_train[selected_features_FSS]
+X_test = X_test[selected_features_FSS]
+x_test = x_test[selected_features_FSS]
+
+model = RandomForestClassifier(class_weight='balanced', criterion='gini',
+                               max_depth=7, max_features='sqrt', max_leaf_nodes=30,
+                               n_estimators=350, n_jobs=-1, random_state=42)
+
 model.fit(X_train, Y_train)
-
-# n_estimators = 500, max_depth = 5 <- Best on Kaggle rn
-
-# selected_features_FSS = ['HomePlanet', 'CryoSleep',
-#                          'Age', 'FoodCourt', 'ShoppingMall', 'total_spent']
-
-# X_train = X_train[selected_features_FSS]
-# X_test = X_test[selected_features_FSS]
-# x_test = x_test[selected_features_FSS]
 
 pred_val = model.predict(X_test)
 
@@ -187,19 +180,3 @@ submission["Transported"] = pred
 
 os.makedirs('submissions/random_forests', exist_ok=True)
 submission.to_csv('submissions/random_forests/out.csv', index=False)
-
-# sfs = SequentialFeatureSelector(
-#     model, n_features_to_select=6, direction="forward", n_jobs=-1)
-# sfs.fit(X_train, Y_train)
-
-# mask = sfs.get_support()
-# features_chosen_mask = feature_names[mask]
-# features_chosen = [feature
-#                    for feature in features_chosen_mask]
-# print("Features chosen: ", features_chosen)
-# 'CryoSleep', 'RoomService', 'FoodCourt', 'ShoppingMall', 'Spa', 'VRDeck' <- FSS
-# 'Destination', 'RoomService', 'FoodCourt', 'ShoppingMall', 'Spa', 'VRDeck' <- BSS
-
-# X_train = sfs.transform(X_train)
-# X_test = sfs.transform(X_test)
-# x_test = sfs.transform(x_test)
