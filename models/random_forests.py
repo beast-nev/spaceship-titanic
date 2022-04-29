@@ -11,7 +11,7 @@ from sklearn.impute import SimpleImputer, IterativeImputer
 from sklearn.metrics import accuracy_score, classification_report, roc_auc_score
 from sklearn.preprocessing import LabelEncoder, MaxAbsScaler, MinMaxScaler, RobustScaler, StandardScaler
 from sklearn.model_selection import GridSearchCV, train_test_split
-from sklearn.feature_selection import SelectKBest, SelectFpr, SelectFdr, SelectPercentile, SelectFwe
+from sklearn.feature_selection import SelectKBest, SelectFpr, SelectFdr, SelectPercentile, SelectFwe, VarianceThreshold, SelectFromModel
 
 
 x_train = pd.read_csv('./data/train.csv')
@@ -155,16 +155,24 @@ X_train, X_test, Y_train, Y_test = train_test_split(
 # X_test = selector.transform(X_test)
 # x_test = selector.transform(x_test)
 
-selected_features_FSS = ['CryoSleep', 'RoomService',
-                         'FoodCourt', 'ShoppingMall', 'Spa', 'VRDeck']
 
-X_train = X_train[selected_features_FSS]
-X_test = X_test[selected_features_FSS]
-x_test = x_test[selected_features_FSS]
+# selected_features_FSS = ['CryoSleep', 'RoomService',
+#                          'FoodCourt', 'ShoppingMall', 'Spa', 'VRDeck']
+
+# X_train = X_train[selected_features_FSS]
+# X_test = X_test[selected_features_FSS]
+# x_test = x_test[selected_features_FSS]
 
 model = RandomForestClassifier(class_weight='balanced', criterion='gini',
                                max_depth=7, max_features='sqrt', max_leaf_nodes=30,
                                n_estimators=350, n_jobs=-1, random_state=42)
+
+selector = SelectFromModel(model, prefit=False)
+selector.fit(X_train, Y_train)
+
+X_train = selector.transform(X_train)
+X_test = selector.transform(X_test)
+x_test = selector.transform(x_test)
 
 model.fit(X_train, Y_train)
 

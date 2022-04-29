@@ -1,12 +1,16 @@
 import os
+from matplotlib import pyplot as plt
 import pandas as pd
 import numpy as np
+from sklearn.discriminant_analysis import LinearDiscriminantAnalysis, QuadraticDiscriminantAnalysis
+from sklearn.naive_bayes import GaussianNB
 from sklearn.ensemble import BaggingClassifier
 from sklearn.impute import SimpleImputer
 from sklearn.metrics import roc_auc_score
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.preprocessing import LabelEncoder, MaxAbsScaler, MinMaxScaler, RobustScaler, StandardScaler
 from sklearn.model_selection import train_test_split
+from sklearn.svm import SVC, LinearSVC
 
 x_train = pd.read_csv('./data/train.csv')
 x_test = pd.read_csv('./data/test.csv')
@@ -106,8 +110,8 @@ print("Number of features:", len(feature_names))
 X_train, X_test, Y_train, Y_test = train_test_split(
     x_train, y_train, test_size=0.3, random_state=42)
 
-model = BaggingClassifier(n_estimators=250, n_jobs=-1,
-                          base_estimator=KNeighborsClassifier(n_neighbors=5))
+model = BaggingClassifier(n_estimators=250, n_jobs=-1, max_samples=0.5, max_features=0.5,
+                          base_estimator=SVC(kernel="rbf", max_iter=2000))
 
 selected_features_FSS = ['CryoSleep', 'Age', 'RoomService',
                          'FoodCourt', 'ShoppingMall', 'Spa', 'VRDeck', 'total_spent', 'deck']
