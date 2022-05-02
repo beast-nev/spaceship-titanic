@@ -2,25 +2,17 @@ import os
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from sklearn.decomposition import PCA
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.feature_selection import SequentialFeatureSelector, chi2, f_classif, mutual_info_classif
-from sklearn.experimental import enable_iterative_imputer
-from sklearn.impute import SimpleImputer, IterativeImputer
-from sklearn.metrics import accuracy_score, classification_report, roc_auc_score
-from sklearn.preprocessing import LabelEncoder, MaxAbsScaler, MinMaxScaler, OneHotEncoder, RobustScaler, StandardScaler
-from sklearn.model_selection import GridSearchCV, train_test_split
-from sklearn.feature_selection import SelectKBest, SelectFpr, SelectFdr, SelectPercentile, SelectFwe, VarianceThreshold, SelectFromModel
+from sklearn.impute import SimpleImputer
+from sklearn.metrics import roc_auc_score
+from sklearn.preprocessing import LabelEncoder, OneHotEncoder
+from sklearn.model_selection import train_test_split
 import keras as keras
 import keras.layers as layers
 pd.set_option('display.max_columns', 25)
-# Setup plotting
 plt.style.use('seaborn-whitegrid')
-# Set Matplotlib defaults
 plt.rc('figure', autolayout=True)
 plt.rc('axes', labelweight='bold', labelsize='large',
        titleweight='bold', titlesize=18, titlepad=10)
-plt.rc('animation', html='html5')
 
 x_train = pd.read_csv('./data/train.csv')
 x_test = pd.read_csv('./data/test.csv')
@@ -103,31 +95,24 @@ for i in categorical_features:
 feature_names = x_train.columns
 
 X_train, X_test, Y_train, Y_test = train_test_split(
-    x_train, y_train, test_size=0.3, random_state=42)
-
-selector = SelectKBest(k=6, score_func=f_classif)
-# selector = PCA(0.99, random_state=42)
-selector.fit(X_train, Y_train)
-
-X_train = selector.transform(X_train)
-X_test = selector.transform(X_test)
-x_test = selector.transform(x_test)
-
-print(X_train.shape)
-print(X_test.shape)
+    x_train, y_train, test_size=0.3, random_state=42, stratify=y_train)
 
 input_shape = X_train.shape[0]
 
 model = keras.Sequential([
     layers.BatchNormalization(),
-    layers.Dense(units=1024, input_shape=[input_shape], activation="relu"),
+    layers.Dense(units=256, input_shape=[input_shape], activation="relu"),
     layers.BatchNormalization(),
-    layers.Dense(units=1024, activation="relu"),
+    layers.Dropout(0.5),
+    layers.Dense(units=256, activation="relu"),
     layers.BatchNormalization(),
-    layers.Dense(units=1024, activation="relu"),
+    layers.Dropout(0.5),
+    layers.Dense(units=256, activation="relu"),
     layers.BatchNormalization(),
-    layers.Dense(units=512, activation="relu"),
+    layers.Dropout(0.5),
+    layers.Dense(units=256, activation="relu"),
     layers.BatchNormalization(),
+    layers.Dropout(0.5),
     layers.Dense(units=1, activation="sigmoid"),
 ])
 
@@ -138,7 +123,7 @@ model.compile(
 )
 
 early_stopping = keras.callbacks.EarlyStopping(
-    patience=10,
+    patience=20,
     min_delta=0.001,
     restore_best_weights=True,
 )
@@ -146,14 +131,17 @@ early_stopping = keras.callbacks.EarlyStopping(
 history = model.fit(
     x=X_train, y=Y_train,
     validation_data=(X_test, Y_test),
-    batch_size=256,
-    epochs=50,
+    batch_size=128,
+    epochs=500,
     callbacks=[early_stopping]
 )
 
 history_df = pd.DataFrame(history.history)
-history_df.loc[:, ['loss', 'val_loss']].plot()
+# print(history_df.columns)
+history_df.loc[:, ['loss', 'val_loss', ]].plot()
 print("Minimum validation loss: {}".format(history_df['val_loss'].min()))
+# print("Maximum binning accuracy: {}".format(
+#     history_df['binary_accuracy'].max()))
 
 pred_val = model.predict(X_test)
 
@@ -161,8 +149,10 @@ print("ROC_AUC: ", roc_auc_score(Y_test, pred_val))
 
 pred = model.predict(x_test)
 
-submission["Transported"] = pred
+submission["Transported"] = np.round(pred)
+submission["Transported"].loc[submission["Transported"] == 1] = True
+submission["Transported"].loc[submission["Transported"] == 0] = False
 
-os.makedirs('submissions/random_forests', exist_ok=True)
-submission.to_csv('submissions/random_forests/out.csv', index=False)
+os.makedirs('submissions/nn', exist_ok=True)
+submission.to_csv('submissions/nn/out.csv', index=False)
 plt.show()
