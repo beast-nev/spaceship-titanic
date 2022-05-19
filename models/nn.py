@@ -23,7 +23,6 @@ submission = pd.DataFrame(
 
 y_train = x_train["Transported"]
 x_train = x_train.drop(columns=["Transported", ])
-# x_test = x_test.drop(columns=["PassengerId"])
 
 float_features = ["Age", "RoomService",
                   "FoodCourt", "ShoppingMall", "Spa", "VRDeck", "most_spent", "least_spent", "std_spent", "total_spent"]
@@ -123,7 +122,7 @@ Y_test = np.asarray(Y_test).astype('float32')
 
 # nn model
 input_shape = X_train.shape[1]
-layer_sizes = [1024, 756, 512, 256, 128, 1]
+layer_sizes = [256, 256, 128, 1]
 activation_function = "swish"
 dropout_size = 0.5
 model = keras.Sequential([
@@ -133,6 +132,10 @@ model = keras.Sequential([
     layers.BatchNormalization(),
     layers.Dropout(dropout_size),
     layers.Dense(units=layer_sizes[1], activation=activation_function,
+                 ),
+    layers.BatchNormalization(),
+    layers.Dropout(dropout_size),
+    layers.Dense(units=layer_sizes[2], activation=activation_function,
                  ),
     layers.BatchNormalization(),
     layers.Dropout(dropout_size),
@@ -153,7 +156,7 @@ early_stopping = keras.callbacks.EarlyStopping(
     restore_best_weights=True,
 )
 # fit the model
-batch_size = 128
+batch_size = 256
 epochs = 500
 history = model.fit(
     x=X_train, y=Y_train,
