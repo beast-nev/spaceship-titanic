@@ -22,125 +22,109 @@ submission = pd.DataFrame(
     columns=["PassengerId", "Transported"], data=x_test["PassengerId"])
 
 y_train = x_train["Transported"]
-x_train = x_train.drop(columns=["Transported", "PassengerId"])
-x_test = x_test.drop(columns=["PassengerId"])
+x_train = x_train.drop(columns=["Transported", ])
+# x_test = x_test.drop(columns=["PassengerId"])
 
-categorical_features = ["HomePlanet", "CryoSleep",
-                        "Cabin", "Destination", "VIP", "Name"]
 float_features = ["Age", "RoomService",
-                  "FoodCourt", "ShoppingMall", "Spa", "VRDeck"]
+                  "FoodCourt", "ShoppingMall", "Spa", "VRDeck", "most_spent", "least_spent", "std_spent", "total_spent"]
 
-for i in float_features:
-    if i != "Age":
-        x_train[i] = x_train[i].fillna(0)
-        x_test[i] = x_test[i].fillna(0)
-    else:
-        x_train[i] = SimpleImputer(
-            strategy="mean").fit_transform(x_train[[i]])
-        x_test[i] = SimpleImputer(
-            strategy="mean").fit_transform(x_test[[i]])
+label_encoders = ["FirstName",
+                  "LastName",
+                  "num", ]
+onehot_encoders = ["HomePlanet", "CryoSleep",
+                   "deck", "side", "Destination", "VIP"]
 
-x_train["most_spent"] = x_train[["RoomService",
-                                 "FoodCourt", "ShoppingMall", "Spa", "VRDeck"]].max(axis=1)
-x_train["least_spent"] = x_train[["RoomService",
-                                 "FoodCourt", "ShoppingMall", "Spa", "VRDeck"]].min(axis=1)
-x_train["std_spent"] = x_train[["RoomService",
-                                "FoodCourt", "ShoppingMall", "Spa", "VRDeck"]].std(axis=1)
-x_train["total_spent"] = x_train[["RoomService",
-                                 "FoodCourt", "ShoppingMall", "Spa", "VRDeck"]].sum(axis=1)
 
-x_test["most_spent"] = x_test[["RoomService",
-                               "FoodCourt", "ShoppingMall", "Spa", "VRDeck"]].max(axis=1)
-x_test["least_spent"] = x_test[["RoomService",
-                                "FoodCourt", "ShoppingMall", "Spa", "VRDeck"]].min(axis=1)
-x_test["std_spent"] = x_test[["RoomService",
-                              "FoodCourt", "ShoppingMall", "Spa", "VRDeck"]].std(axis=1)
-x_test["total_spent"] = x_test[["RoomService",
-                                "FoodCourt", "ShoppingMall", "Spa", "VRDeck"]].sum(axis=1)
+def fill_nulls(df):
 
-# # deck/num/side -> Side = P or S
-# # B/0/P
-x_train[['deck', 'num', 'side']] = x_train['Cabin'].str.split('/', expand=True)
+    # fill the null values with the mean, except for age -> set to 0
+    for i in float_features:
+        if i != "Age":
+            df[i] = df[i].fillna(0)
+        else:
+            df[i] = SimpleImputer(
+                strategy="mean").fit_transform(df[[i]])
 
-x_train = x_train.drop(columns=["Cabin", ])
+    # label encoding and one hot encoding
+    for j in label_encoders:
+        df[j] = LabelEncoder().fit_transform(df[j])
+    for k in onehot_encoders:
+        df[k] = OneHotEncoder().fit_transform(df[[i]]).toarray()
+    return df
 
-x_test[['deck', 'num', 'side']] = x_test['Cabin'].str.split('/', expand=True)
 
-x_test = x_test.drop(columns=["Cabin", ])
+def feature_engineering(df):
 
-x_train["deck"] = LabelEncoder().fit_transform(x_train["deck"])
-x_test["deck"] = LabelEncoder().fit_transform(x_test["deck"])
+    # calculate the most, least, std, and total spent for each person
+    df["most_spent"] = df[["RoomService",
+                           "FoodCourt", "ShoppingMall", "Spa", "VRDeck"]].max(axis=1)
+    df["least_spent"] = df[["RoomService",
+                            "FoodCourt", "ShoppingMall", "Spa", "VRDeck"]].min(axis=1)
+    df["std_spent"] = df[["RoomService",
+                          "FoodCourt", "ShoppingMall", "Spa", "VRDeck"]].std(axis=1)
+    df["total_spent"] = df[["RoomService",
+                            "FoodCourt", "ShoppingMall", "Spa", "VRDeck"]].sum(axis=1)
 
-x_train["num"] = LabelEncoder().fit_transform(x_train["num"])
-x_test["num"] = LabelEncoder().fit_transform(x_test["num"])
+    # split the cabin into three features
+    df[['deck', 'num', 'side']] = df['Cabin'].str.split('/', expand=True)
+    df = df.drop(columns=["Cabin", ])
 
-x_train["side"] = OneHotEncoder(sparse=False).fit_transform(x_train[["side"]])
-x_test["side"] = OneHotEncoder(sparse=False).fit_transform(x_test[["side"]])
+    # if the person is sleeping or less than 12, make the total spend amounts 0
+    df['total_spent'] = df.apply(
+        lambda row: 0 if row["CryoSleep"] == True or row["Age"] <= 12 else row['total_spent'],
+        axis=1
+    )
+    df['most_spent'] = df.apply(
+        lambda row: 0 if row["CryoSleep"] == True or row["Age"] <= 12 else row['most_spent'],
+        axis=1
+    )
+    df['least_spent'] = df.apply(
+        lambda row: 0 if row["CryoSleep"] == True or row["Age"] <= 12 else row['least_spent'],
+        axis=1
+    )
+    df['std_spent'] = df.apply(
+        lambda row: 0 if row["CryoSleep"] == True or row["Age"] <= 12 else row['std_spent'],
+        axis=1
+    )
 
+    # split name into first and last name
+    df['FirstName'] = df['Name'].str.split(' ', expand=True)[0]
+    df['LastName'] = df['Name'].str.split(' ', expand=True)[1]
+    df.drop(columns=['Name'], inplace=True)
+
+    # split travelers into groups based on their id
+    df['GroupId'] = df['PassengerId'].str.split('_', expand=True)[
+        0]
+    return df
+
+
+# transform the training and test data
+x_train = feature_engineering(x_train)
+x_train = fill_nulls(x_train)
+x_train = x_train.drop(columns=['PassengerId'])
+
+x_test = feature_engineering(x_test)
+x_test = fill_nulls(x_test)
+x_test = x_test.drop(columns=['PassengerId'])
+
+# number of features
 feature_names = x_train.columns
 print("Number of features: ", len(feature_names))
 
-x_train['total_spent'] = x_train.apply(
-    lambda row: 0 if row["CryoSleep"] == True or row["Age"] <= 12 else row['total_spent'],
-    axis=1
-)
-x_train['most_spent'] = x_train.apply(
-    lambda row: 0 if row["CryoSleep"] == True or row["Age"] <= 12 else row['most_spent'],
-    axis=1
-)
-x_train['least_spent'] = x_train.apply(
-    lambda row: 0 if row["CryoSleep"] == True or row["Age"] <= 12 else row['least_spent'],
-    axis=1
-)
-x_train['std_spent'] = x_train.apply(
-    lambda row: 0 if row["CryoSleep"] == True or row["Age"] <= 12 else row['std_spent'],
-    axis=1
-)
-
-x_test['total_spent'] = x_test.apply(
-    lambda row: 0 if row["CryoSleep"] == True or row["Age"] <= 12 else row['total_spent'],
-    axis=1
-)
-x_test['most_spent'] = x_test.apply(
-    lambda row: 0 if row["CryoSleep"] == True or row["Age"] <= 12 else row['most_spent'],
-    axis=1
-)
-x_test['least_spent'] = x_test.apply(
-    lambda row: 0 if row["CryoSleep"] == True or row["Age"] <= 12 else row['least_spent'],
-    axis=1
-)
-x_test['std_spent'] = x_test.apply(
-    lambda row: 0 if row["CryoSleep"] == True or row["Age"] <= 12 else row['std_spent'],
-    axis=1
-)
-
-for i in categorical_features:
-    if i != "Cabin" and i != "CryoSleep" and i != "VIP":
-        x_train[i] = x_train[i].fillna("")
-        x_test[i] = x_test[i].fillna("")
-    elif i == "CryoSleep" or i == "VIP":
-        x_train[i] = x_train[i].fillna(False)
-        x_test[i] = x_test[i].fillna(False)
-
-for i in categorical_features:
-    if i != "Cabin" and i != "Name":
-        encoder = OneHotEncoder()
-        x_train[i] = encoder.fit_transform(x_train[[i]]).toarray()
-        x_test[i] = encoder.fit_transform(x_test[[i]]).toarray()
-    elif i == "Name":
-        encoder = LabelEncoder()
-        encoder.fit(x_train[i])
-        x_train[i] = encoder.fit_transform(x_train[[i]])
-        x_test[i] = encoder.fit_transform(x_test[[i]])
-
-feature_names = x_train.columns
-
+# split into train and validation set
 X_train, X_test, Y_train, Y_test = train_test_split(
     x_train, y_train, test_size=0.3, random_state=42, stratify=y_train)
 
+# convert to float32 for tf
+X_train = np.asarray(X_train).astype('float32')
+X_test = np.asarray(X_test).astype('float32')
+Y_train = np.asarray(Y_train).astype('float32')
+Y_test = np.asarray(Y_test).astype('float32')
+
+# nn model
 input_shape = X_train.shape[1]
-layer_sizes = [756, 756, 512, 256, 128, 1]
-activation_function = "relu"
+layer_sizes = [1024, 756, 512, 256, 128, 1]
+activation_function = "swish"
 dropout_size = 0.5
 model = keras.Sequential([
     layers.BatchNormalization(input_shape=[input_shape]),
@@ -193,12 +177,13 @@ with open("run_results.txt", "a") as file:
         f"Val binary accuracy best: {str(history_df['val_binary_accuracy'].max())}\n")
     file.write(
         f"With layer sizes: {layer_sizes},\nbatch_size: {batch_size},\nepochs: {epochs},\nactivation function: {activation_function},\ndropout size: {dropout_size}\n")
+x_test = np.asarray(x_test).astype('float32')
 pred = model.predict(x_test)
 # pred = stats.rankdata(pred)
 
-submission["Transported"] = np.round(pred)
-submission["Transported"].loc[submission["Transported"] == 1] = True
-submission["Transported"].loc[submission["Transported"] == 0] = False
+submission['Transported'] = np.array(pred).mean(axis=1)
+submission['Transported'] = np.where(
+    submission['Transported'] > 0.5, True, False)
 
 os.makedirs('submissions/nn', exist_ok=True)
 submission.to_csv('submissions/nn/out.csv', index=False)
