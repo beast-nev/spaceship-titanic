@@ -1,3 +1,4 @@
+from calendar import EPOCH
 import os
 from time import asctime, localtime, time
 import pandas as pd
@@ -6,7 +7,7 @@ import matplotlib.pyplot as plt
 from sklearn.impute import SimpleImputer
 from sklearn.metrics import roc_auc_score
 from sklearn.preprocessing import LabelEncoder, OneHotEncoder
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import StratifiedKFold, train_test_split
 import keras as keras
 import keras.layers as layers
 pd.set_option('display.max_columns', 25)
@@ -111,80 +112,118 @@ feature_names = x_train.columns
 print("Number of features: ", len(feature_names))
 
 # split into train and validation set
-X_train, X_test, Y_train, Y_test = train_test_split(
-    x_train, y_train, test_size=0.3, random_state=42, stratify=y_train)
+# X_train, X_test, Y_train, Y_test = train_test_split(
+#     x_train, y_train, test_size=0.3, random_state=42, stratify=y_train)
 
-# convert to float32 for tf
-X_train = np.asarray(X_train).astype('float32')
-X_test = np.asarray(X_test).astype('float32')
-Y_train = np.asarray(Y_train).astype('float32')
-Y_test = np.asarray(Y_test).astype('float32')
+LAYER_SIZES = [512, 256, 128, 1]
+ACTIVATION_FUNCTION = "swish"
+DROPOUT_SIZE = 0.5
+BATCH_SIZE = 256
+EPOCHS = 500
+y_preds = []
 
-# nn model
-input_shape = X_train.shape[1]
-layer_sizes = [256, 256, 128, 1]
-activation_function = "swish"
-dropout_size = 0.5
-model = keras.Sequential([
-    layers.BatchNormalization(input_shape=[input_shape]),
-    layers.Dense(input_shape=[input_shape], units=layer_sizes[0], activation=activation_function,
-                 ),
-    layers.BatchNormalization(),
-    layers.Dropout(dropout_size),
-    layers.Dense(units=layer_sizes[1], activation=activation_function,
-                 ),
-    layers.BatchNormalization(),
-    layers.Dropout(dropout_size),
-    layers.Dense(units=layer_sizes[2], activation=activation_function,
-                 ),
-    layers.BatchNormalization(),
-    layers.Dropout(dropout_size),
-    layers.Dense(units=layer_sizes[len(layer_sizes)-1], activation="sigmoid"),
-])
 
-# compile model
-model.compile(
-    optimizer="adam",
-    loss="binary_crossentropy",
-    metrics=["binary_accuracy"]
-)
+def run_model(x_t, y_t, x_v, y_v, test):
+    """
+    @params x_t, y_t, x_v, y_v are the training data and validation data respectively
+    @return history is the dataframe containg the loss and validation loss for a run
+    Function used to train the model and predict the test data
+    """
+    # convert to float32 for tf
+    X_train = np.asarray(x_t).astype('float32')
+    X_test = np.asarray(x_v).astype('float32')
+    Y_train = np.asarray(y_t).astype('float32')
+    Y_test = np.asarray(y_v).astype('float32')
 
-# set up early_stopping to avoid overfitting
-early_stopping = keras.callbacks.EarlyStopping(
-    patience=50,
-    min_delta=0.001,
-    restore_best_weights=True,
-)
-# fit the model
-batch_size = 256
-epochs = 500
-history = model.fit(
-    x=X_train, y=Y_train,
-    validation_data=(X_test, Y_test),
-    batch_size=batch_size,
-    epochs=epochs,
-    callbacks=[early_stopping],
-)
+    # nn model
+    input_shape = X_train.shape[1]
+    model = keras.Sequential([
+        layers.BatchNormalization(input_shape=[input_shape]),
+        layers.Dense(input_shape=[input_shape], units=LAYER_SIZES[0], activation=ACTIVATION_FUNCTION,
+                     ),
+        layers.BatchNormalization(),
+        layers.Dropout(DROPOUT_SIZE),
+        layers.Dense(units=LAYER_SIZES[1], activation=ACTIVATION_FUNCTION,
+                     ),
+        layers.BatchNormalization(),
+        layers.Dropout(DROPOUT_SIZE),
+        layers.Dense(units=LAYER_SIZES[2], activation=ACTIVATION_FUNCTION,
+                     ),
+        layers.BatchNormalization(),
+        layers.Dropout(DROPOUT_SIZE),
+        layers.Dense(units=LAYER_SIZES[len(
+            LAYER_SIZES)-1], activation="sigmoid"),
+    ])
 
-# plot the trainiing loss versus validation loss to confirm no under/overfitting
-history_df = pd.DataFrame(history.history)
-print(history_df.columns)
-history_df.loc[:, ['loss', 'val_loss', ]].plot()
-print(f"Minimum validation loss: {history_df['val_loss'].min()}")
-print(f"Best val accuracy: {history_df['val_binary_accuracy'].max()}")
+    # compile model
+    model.compile(
+        optimizer="adam",
+        loss="binary_crossentropy",
+        metrics=["binary_accuracy"]
+    )
 
-# write results to file for evaluating model
-with open("run_results.txt", "a") as file:
-    file.write(f"\nTime: {asctime(localtime())}\n")
-    file.write(
-        f"Val binary accuracy best: {str(history_df['val_binary_accuracy'].max())}\n")
-    file.write(
-        f"With layer sizes: {layer_sizes},\nbatch_size: {batch_size},\nepochs: {epochs},\nactivation function: {activation_function},\ndropout size: {dropout_size}\n")
-x_test = np.asarray(x_test).astype('float32')
-pred = model.predict(x_test)
-# pred = stats.rankdata(pred)
+    # set up early_stopping to avoid overfitting
+    early_stopping = keras.callbacks.EarlyStopping(
+        patience=15,
+        min_delta=0.001,
+        restore_best_weights=True,
+    )
+    # fit the model
+    history = model.fit(
+        x=X_train, y=Y_train,
+        validation_data=(X_test, Y_test),
+        batch_size=BATCH_SIZE,
+        epochs=EPOCHS,
+        callbacks=[early_stopping],
+    )
 
-submission['Transported'] = np.array(pred).mean(axis=1)
+    # create a dataframe of the history
+    history_df = pd.DataFrame(history.history)
+
+    # predict the test data, add results to a list to be averaged later on
+    x_test = np.asarray(test).astype('float32')
+    pred = model.predict(x_test)
+    y_preds.append(pred)
+
+    return history_df
+
+
+def plot_results(history):
+    """
+    @params history df from keras containing the loss and validation loss
+    Plots the runs loss versus validation loss to analyze overfitting
+    """
+    # plot the trainiing loss versus validation loss to confirm no under/overfitting
+    print(history.columns)
+    history.loc[:, ['loss', 'val_loss', ]].plot()
+    print(f"Minimum validation loss: {history['val_loss'].min()}")
+    print(f"Best val accuracy: {history['val_binary_accuracy'].max()}")
+
+    # write results to file for evaluating model
+    with open("run_results.txt", "a") as file:
+        file.write(f"\nTime: {asctime(localtime())}\n")
+        file.write(
+            f"Val binary accuracy best: {str(history['val_binary_accuracy'].max())}\n")
+        file.write(
+            f"With layer sizes: {LAYER_SIZES},\nbatch_size: {BATCH_SIZE},\nepochs: {EPOCHS},\nactivation function: {ACTIVATION_FUNCTION},\ndropout size: {DROPOUT_SIZE}\n")
+
+
+skfold = StratifiedKFold()
+for fold, (train_id, test_id) in enumerate(skfold.split(x_train, y_train)):
+
+    # split into the folds
+    X_train = x_train.iloc[train_id]
+    Y_train = y_train.iloc[train_id]
+    X_test = x_train.iloc[test_id]
+    Y_test = y_train.iloc[test_id]
+
+    # run the model on the fold
+    history = run_model(x_t=X_train, y_t=Y_train,
+                        x_v=X_test, y_v=Y_test, test=x_test)
+    # plot_results(history)
+
+pred = sum(y_preds) / len(y_preds)
+submission['Transported'] = pred
 submission['Transported'] = np.where(
     submission['Transported'] > 0.5, True, False)
 
