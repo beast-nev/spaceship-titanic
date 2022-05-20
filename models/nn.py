@@ -110,16 +110,15 @@ x_test = x_test.drop(columns=['PassengerId'])
 feature_names = x_train.columns
 print("Number of features: ", len(feature_names))
 
-# split into train and validation set
-# X_train, X_test, Y_train, Y_test = train_test_split(
-#     x_train, y_train, test_size=0.3, random_state=42, stratify=y_train)
 
-LAYER_SIZES = [1024, 256, 128, 1]
+# define nn model parameters
+LAYER_SIZES = [512, 256, 128, 1]
 ACTIVATION_FUNCTION = "swish"
 DROPOUT_SIZE = 0.5
 BATCH_SIZE = 256
 EPOCHS = 500
 y_preds = []
+val_scores = []
 
 
 def run_model(x_t, y_t, x_v, y_v, test):
@@ -184,6 +183,8 @@ def run_model(x_t, y_t, x_v, y_v, test):
     pred = model.predict(x_test)
     y_preds.append(pred)
 
+    val_scores.append(history_df['val_binary_accuracy'].max())
+
     return history_df
 
 
@@ -207,8 +208,11 @@ def plot_results(history):
             f"With layer sizes: {LAYER_SIZES},\nbatch_size: {BATCH_SIZE},\nepochs: {EPOCHS},\nactivation function: {ACTIVATION_FUNCTION},\ndropout size: {DROPOUT_SIZE}\n")
 
 
-skfold = StratifiedKFold()
+# best score might be fron no groupid
+
+skfold = StratifiedKFold(n_splits=5)
 for fold, (train_id, test_id) in enumerate(skfold.split(x_train, y_train)):
+    print(f"Fold: {fold}")
 
     # split into the folds
     X_train = x_train.iloc[train_id]
@@ -219,7 +223,7 @@ for fold, (train_id, test_id) in enumerate(skfold.split(x_train, y_train)):
     # run the model on the fold
     history = run_model(x_t=X_train, y_t=Y_train,
                         x_v=X_test, y_v=Y_test, test=x_test)
-    # plot_results(history)
+    print(f"Score from fold {fold}: {val_scores[fold]}")
 
 pred = sum(y_preds) / len(y_preds)
 submission['Transported'] = pred
