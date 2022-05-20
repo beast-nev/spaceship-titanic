@@ -1,15 +1,14 @@
-from calendar import EPOCH
 import os
 from time import asctime, localtime, time
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.impute import SimpleImputer
-from sklearn.metrics import roc_auc_score
 from sklearn.preprocessing import LabelEncoder, OneHotEncoder
 from sklearn.model_selection import StratifiedKFold, train_test_split
 import keras as keras
 import keras.layers as layers
+
 pd.set_option('display.max_columns', 25)
 plt.style.use('seaborn-whitegrid')
 plt.rc('figure', autolayout=True)
@@ -30,7 +29,7 @@ float_features = ["Age", "RoomService",
 
 label_encoders = ["FirstName",
                   "LastName",
-                  "num", ]
+                  "num", "GroupId", ]
 onehot_encoders = ["HomePlanet", "CryoSleep",
                    "deck", "side", "Destination", "VIP"]
 
@@ -115,7 +114,7 @@ print("Number of features: ", len(feature_names))
 # X_train, X_test, Y_train, Y_test = train_test_split(
 #     x_train, y_train, test_size=0.3, random_state=42, stratify=y_train)
 
-LAYER_SIZES = [512, 256, 128, 1]
+LAYER_SIZES = [1024, 256, 128, 1]
 ACTIVATION_FUNCTION = "swish"
 DROPOUT_SIZE = 0.5
 BATCH_SIZE = 256

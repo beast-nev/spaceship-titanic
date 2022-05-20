@@ -1,13 +1,20 @@
 import os
-import numpy as np
+from re import L
+from time import asctime, localtime, time
 import pandas as pd
-from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
-from sklearn.feature_selection import SequentialFeatureSelector
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.impute import SimpleImputer
-from sklearn.metrics import classification_report, roc_auc_score
-from sklearn.preprocessing import LabelEncoder, MinMaxScaler, RobustScaler, StandardScaler
-from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import LabelEncoder, OneHotEncoder
+from sklearn.model_selection import StratifiedKFold, train_test_split
+import lightgbm as lgbm
 
+pd.set_option('display.max_columns', 25)
+plt.style.use('seaborn-whitegrid')
+plt.rc('figure', autolayout=True)
+plt.rc('axes', labelweight='bold', labelsize='large',
+       titleweight='bold', titlesize=18, titlepad=10)
 
 x_train = pd.read_csv('./data/train.csv')
 x_test = pd.read_csv('./data/test.csv')
@@ -16,164 +23,137 @@ submission = pd.DataFrame(
     columns=["PassengerId", "Transported"], data=x_test["PassengerId"])
 
 y_train = x_train["Transported"]
-x_train = x_train.drop(columns=["Transported", "PassengerId"])
-x_test = x_test.drop(columns=["PassengerId"])
+x_train = x_train.drop(columns=["Transported", ])
 
-categorical_features = ["HomePlanet", "CryoSleep",
-                        "Cabin", "Destination", "VIP", "Name"]
 float_features = ["Age", "RoomService",
-                  "FoodCourt", "ShoppingMall", "Spa", "VRDeck"]
+                  "FoodCourt", "ShoppingMall", "Spa", "VRDeck", "most_spent", "least_spent", "std_spent", "total_spent"]
 
-# print("Number of VIP in training: ",
-#       x_train["VIP"].loc[x_train["VIP"] == True].shape[0])
-# print("Number of NON-VIP in training: ",
-#       x_train["VIP"].loc[x_train["VIP"] == False].shape[0])
-# print("Number of VIP in testing: ",
-#       x_test["VIP"].loc[x_test["VIP"] == True].shape[0])
-# print("Number of NON-VIP in testing: ",
-#       x_test["VIP"].loc[x_test["VIP"] == False].shape[0])
-
-# print("Number of cryoSleep in training: ",
-#       x_train["CryoSleep"].loc[x_train["CryoSleep"] == True].shape[0])
-# print("Number of NON-cryoSleep in training: ",
-#       x_train["CryoSleep"].loc[x_train["CryoSleep"] == False].shape[0])
-# print("Number of cryoSleep in testing: ",
-#       x_test["CryoSleep"].loc[x_test["CryoSleep"] == True].shape[0])
-# print("Number of NON-cryoSleep in testing: ",
-#       x_test["CryoSleep"].loc[x_test["CryoSleep"] == False].shape[0])
-
-encoder = LabelEncoder()
-for i in categorical_features:
-    if i != "Cabin":
-        x_train[i] = encoder.fit_transform(x_train[i])
-        x_test[i] = encoder.fit_transform(x_test[i])
-
-x_train["total_spent"] = x_train["RoomService"] + \
-    x_train["FoodCourt"] + x_train["ShoppingMall"] + \
-    x_train["Spa"] + x_train["VRDeck"]
-
-x_train["interactionAmentities1"] = x_train["FoodCourt"] * \
-    x_train["ShoppingMall"]
-x_train["interactionAmentities2"] = x_train["FoodCourt"] * \
-    x_train["RoomService"]
-x_train["interactionAmentities3"] = x_train["FoodCourt"] * \
-    x_train["Spa"]
-x_train["interactionAmentities4"] = x_train["FoodCourt"] * \
-    x_train["VRDeck"]
+label_encoders = ["FirstName",
+                  "LastName",
+                  "num", "GroupId"]
+onehot_encoders = ["HomePlanet", "CryoSleep",
+                   "deck", "side", "Destination", "VIP"]
 
 
-# deck/num/side -> Side = P or S
-# B/0/P
-x_train["Cabin"] = x_train["Cabin"].str.replace('/', '')
-x_train["deck"] = x_train["Cabin"].str[0:1]
-x_train["num"] = x_train["Cabin"].str[1:2]
-x_train["side"] = x_train["Cabin"].str[2:]
-x_train["side"] = x_train["side"].str.replace('0', '')
-x_train = x_train.drop(columns=["Cabin"])
+def fill_nulls(df):
 
-x_test["Cabin"] = x_test["Cabin"].str.replace('/', '')
-x_test["deck"] = x_test["Cabin"].str[0:1]
-x_test["num"] = x_test["Cabin"].str[1:2]
-x_test["side"] = x_test["Cabin"].str[2:]
-x_test["side"] = x_test["side"].str.replace('0', '')
-x_test = x_test.drop(columns=["Cabin"])
+    # fill the null values with the mean, except for age -> set to 0
+    for i in float_features:
+        if i != "Age":
+            df[i] = df[i].fillna(0)
+        else:
+            df[i] = SimpleImputer(
+                strategy="mean").fit_transform(df[[i]])
 
-deckEncoder = LabelEncoder()
-x_train["deck"] = deckEncoder.fit_transform(x_train["deck"])
-x_test["deck"] = deckEncoder.fit_transform(x_test["deck"])
+    # label encoding and one hot encoding
+    for j in label_encoders:
+        df[j] = LabelEncoder().fit_transform(df[j])
+    for k in onehot_encoders:
+        df[k] = OneHotEncoder().fit_transform(df[[i]]).toarray()
+    return df
 
-numEncoder = LabelEncoder()
-x_train["num"] = deckEncoder.fit_transform(x_train["num"])
-x_test["num"] = deckEncoder.fit_transform(x_test["num"])
 
-portEncoder = LabelEncoder()
-x_train["side"] = deckEncoder.fit_transform(x_train["side"])
-x_test["side"] = deckEncoder.fit_transform(x_test["side"])
+def feature_engineering(df):
 
-x_test["total_spent"] = x_test["RoomService"] + \
-    x_test["FoodCourt"] + x_test["ShoppingMall"] + \
-    x_test["Spa"] + x_test["VRDeck"]
+    # calculate the most, least, std, and total spent for each person
+    df["most_spent"] = df[["RoomService",
+                           "FoodCourt", "ShoppingMall", "Spa", "VRDeck"]].max(axis=1)
+    df["least_spent"] = df[["RoomService",
+                            "FoodCourt", "ShoppingMall", "Spa", "VRDeck"]].min(axis=1)
+    df["std_spent"] = df[["RoomService",
+                          "FoodCourt", "ShoppingMall", "Spa", "VRDeck"]].std(axis=1)
+    df["total_spent"] = df[["RoomService",
+                            "FoodCourt", "ShoppingMall", "Spa", "VRDeck"]].sum(axis=1)
 
-x_test["interactionAmentities1"] = x_test["FoodCourt"] * \
-    x_test["ShoppingMall"]
-x_test["interactionAmentities2"] = x_test["FoodCourt"] * \
-    x_test["RoomService"]
-x_test["interactionAmentities3"] = x_test["FoodCourt"] * \
-    x_test["Spa"]
-x_test["interactionAmentities4"] = x_test["FoodCourt"] * \
-    x_test["VRDeck"]
+    # split the cabin into three features
+    df[['deck', 'num', 'side']] = df['Cabin'].str.split('/', expand=True)
+    df = df.drop(columns=["Cabin", ])
 
-feature_names = x_train.columns
+    # if the person is sleeping or less than 12, make the total spend amounts 0
+    df['total_spent'] = df.apply(
+        lambda row: 0 if row["CryoSleep"] == True or row["Age"] <= 12 else row['total_spent'],
+        axis=1
+    )
+    df['most_spent'] = df.apply(
+        lambda row: 0 if row["CryoSleep"] == True or row["Age"] <= 12 else row['most_spent'],
+        axis=1
+    )
+    df['least_spent'] = df.apply(
+        lambda row: 0 if row["CryoSleep"] == True or row["Age"] <= 12 else row['least_spent'],
+        axis=1
+    )
+    df['std_spent'] = df.apply(
+        lambda row: 0 if row["CryoSleep"] == True or row["Age"] <= 12 else row['std_spent'],
+        axis=1
+    )
 
-imputer = SimpleImputer()
-x_train = imputer.fit_transform(x_train)
-x_test = imputer.fit_transform(x_test)
+    # split name into first and last name
+    df['FirstName'] = df['Name'].str.split(' ', expand=True)[0]
+    df['LastName'] = df['Name'].str.split(' ', expand=True)[1]
+    df.drop(columns=['Name'], inplace=True)
 
-x_train = pd.DataFrame(data=x_train, columns=feature_names)
-x_test = pd.DataFrame(data=x_test, columns=feature_names)
+    # split travelers into groups based on their id
+    df['GroupId'] = df['PassengerId'].str.split('_', expand=True)[
+        0]
+    return df
 
-# x_train_float = x_train[float_features]
 
-# scaler = StandardScaler()
-# for i in float_features:
-#     x_train[i] = scaler.fit_transform(x_train[[i]])
-#     x_test[i] = scaler.fit_transform(x_test[[i]])
+# transform the training and test data
+x_train = feature_engineering(x_train)
+x_train = fill_nulls(x_train)
+x_train = x_train.drop(columns=['PassengerId'])
 
-# x_train = x_train.drop(
-#     columns=["Spa", "VRDeck", "ShoppingMall", "Age", "RoomService"])
-# x_test = x_test.drop(
-#     columns=["Spa", "VRDeck", "ShoppingMall", "Age", "RoomService"])
+x_test = feature_engineering(x_test)
+x_test = fill_nulls(x_test)
+x_test = x_test.drop(columns=['PassengerId'])
 
+# number of features
 feature_names = x_train.columns
 print("Number of features: ", len(feature_names))
+
+y_preds = []
 
 X_train, X_test, Y_train, Y_test = train_test_split(
     x_train, y_train, test_size=0.3, random_state=42)
 
-model = GradientBoostingClassifier(
-    n_estimators=500, loss="deviance", learning_rate=0.05, max_depth=4, random_state=42)
 
-# sfs = SequentialFeatureSelector(
-#     model, direction="forward", n_jobs=-1)
-# sfs.fit(X_train, Y_train)
+# From https://www.kaggle.com/code/kartik2khandelwal/ensemble-model-xgboost-catboost-lgbm/notebook?scriptVersionId=90693221
+lgbm_param = {'boosting_type': 'gbdt',
+              'lambda_l1': 0.134746148489252,
+              'lambda_l2': 0.10521615726990495,
+              'bagging_fraction': 0.7,
+              'feature_fraction': 0.6,
+              'learning_rate': 0.001019958066572347,
+              'max_depth': 9,
+              'num_leaves': 23,
+              'min_child_samples': 46}
 
-# mask = sfs.get_support()
-# features_chosen_mask = feature_names[mask]
-# features_chosen = [feature
-#                    for feature in features_chosen_mask]
-# print("Features chosen: ", features_chosen)
+skfold = StratifiedKFold(n_splits=10)
+for fold, (train_id, test_id) in enumerate(skfold.split(x_train, y_train)):
 
-# X_train = sfs.transform(X_train)
-# X_test = sfs.transform(X_test)
-# x_test = sfs.transform(x_test)
+    # split into the folds
+    X_train = x_train.iloc[train_id]
+    Y_train = y_train.iloc[train_id]
+    X_test = x_train.iloc[test_id]
+    Y_test = y_train.iloc[test_id]
 
-# selector = SelectKBest(k=14, score_func=f_classif)
-# print("SelectKBest with k=", selector.get_params()["k"])
-# selector.fit(X_train, Y_train)
+    X_train = np.asarray(X_train).astype('float32')
+    X_test = np.asarray(X_test).astype('float32')
+    Y_train = np.asarray(Y_train).astype('float32')
+    Y_test = np.asarray(Y_test).astype('float32')
 
-# X_train = selector.transform(X_train)
-# X_test = selector.transform(X_test)
-# x_test = selector.transform(x_test)
+    # # run the model on the fold
+    lgbm_model = lgbm.LGBMClassifier(**lgbm_param)
+    lgbm_model.fit(X_train, Y_train)
+    print(f"Model score: {lgbm_model.score(X_test, Y_test)}")
+    pred = lgbm_model.predict(x_test)
+    y_preds.append(pred)
 
-selected_features_FSS = ['CryoSleep', 'Age', 'RoomService',
-                         'FoodCourt', 'ShoppingMall', 'Spa', 'VRDeck', 'total_spent', 'deck']
-
-X_train = X_train[selected_features_FSS]
-X_test = X_test[selected_features_FSS]
-x_test = x_test[selected_features_FSS]
-
-
-model.fit(X_train, Y_train)
-
-pred_val = model.predict(X_test)
-
-print("Score: ",  model.score(X_test, Y_test))
-print("ROC_AUC: ", roc_auc_score(Y_test, pred_val))
-print("Classification report: ", classification_report(Y_test, pred_val))
-
-pred = model.predict(x_test)
-
-submission["Transported"] = pred
+pred = sum(y_preds) / len(y_preds)
+submission['Transported'] = pred
+submission['Transported'] = np.where(
+    submission['Transported'] > 0.5, True, False)
 
 os.makedirs('submissions/boosting', exist_ok=True)
 submission.to_csv('submissions/boosting/out.csv', index=False)
+plt.show()
