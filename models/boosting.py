@@ -113,9 +113,6 @@ print("Number of features: ", len(feature_names))
 
 y_preds = []
 
-X_train, X_test, Y_train, Y_test = train_test_split(
-    x_train, y_train, test_size=0.3, random_state=42)
-
 
 # From https://www.kaggle.com/code/kartik2khandelwal/ensemble-model-xgboost-catboost-lgbm/notebook?scriptVersionId=90693221
 lgbm_param = {'boosting_type': 'gbdt',

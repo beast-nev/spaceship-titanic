@@ -25,11 +25,11 @@ y_train = x_train["Transported"]
 x_train = x_train.drop(columns=["Transported", ])
 
 float_features = ["Age", "RoomService",
-                  "FoodCourt", "ShoppingMall", "Spa", "VRDeck", "most_spent", "least_spent", "std_spent", "total_spent"]
+                  "FoodCourt", "ShoppingMall", "Spa", "VRDeck", "total_spent", "most_spent", "least_spent", "std_spent", ]
 
 label_encoders = ["FirstName",
                   "LastName",
-                  "num", "GroupId", ]
+                  "num", ]
 onehot_encoders = ["HomePlanet", "CryoSleep",
                    "deck", "side", "Destination", "VIP"]
 
@@ -63,12 +63,12 @@ def feature_engineering(df):
                           "FoodCourt", "ShoppingMall", "Spa", "VRDeck"]].std(axis=1)
     df["total_spent"] = df[["RoomService",
                             "FoodCourt", "ShoppingMall", "Spa", "VRDeck"]].sum(axis=1)
+    df["kurt_spent"] = df[["RoomService",
+                           "FoodCourt", "ShoppingMall", "Spa", "VRDeck"]].kurt(axis=1)
+    df["mean_spent"] = df[["RoomService",
+                           "FoodCourt", "ShoppingMall", "Spa", "VRDeck"]].mean(axis=1)
 
-    # split the cabin into three features
-    df[['deck', 'num', 'side']] = df['Cabin'].str.split('/', expand=True)
-    df = df.drop(columns=["Cabin", ])
-
-    # if the person is sleeping or less than 12, make the total spend amounts 0
+    # if the person is sleeping or less than 12yrs old, make the spend amounts 0
     df['total_spent'] = df.apply(
         lambda row: 0 if row["CryoSleep"] == True or row["Age"] <= 12 else row['total_spent'],
         axis=1
@@ -85,6 +85,18 @@ def feature_engineering(df):
         lambda row: 0 if row["CryoSleep"] == True or row["Age"] <= 12 else row['std_spent'],
         axis=1
     )
+    df['kurt_spent'] = df.apply(
+        lambda row: 0 if row["CryoSleep"] == True or row["Age"] <= 12 else row['kurt_spent'],
+        axis=1
+    )
+    df['mean_spent'] = df.apply(
+        lambda row: 0 if row["CryoSleep"] == True or row["Age"] <= 12 else row['mean_spent'],
+        axis=1
+    )
+
+    # split the cabin into three features
+    df[['deck', 'num', 'side']] = df['Cabin'].str.split('/', expand=True)
+    df = df.drop(columns=["Cabin", ])
 
     # split name into first and last name
     df['FirstName'] = df['Name'].str.split(' ', expand=True)[0]
@@ -162,7 +174,7 @@ def run_model(x_t, y_t, x_v, y_v, test):
 
     # set up early_stopping to avoid overfitting
     early_stopping = keras.callbacks.EarlyStopping(
-        patience=15,
+        patience=25,
         min_delta=0.001,
         restore_best_weights=True,
     )
@@ -208,8 +220,6 @@ def plot_results(history):
             f"With layer sizes: {LAYER_SIZES},\nbatch_size: {BATCH_SIZE},\nepochs: {EPOCHS},\nactivation function: {ACTIVATION_FUNCTION},\ndropout size: {DROPOUT_SIZE}\n")
 
 
-# best score might be fron no groupid
-
 skfold = StratifiedKFold(n_splits=5)
 for fold, (train_id, test_id) in enumerate(skfold.split(x_train, y_train)):
     print(f"Fold: {fold}")
@@ -226,6 +236,7 @@ for fold, (train_id, test_id) in enumerate(skfold.split(x_train, y_train)):
     print(f"Score from fold {fold}: {val_scores[fold]}")
 
 pred = sum(y_preds) / len(y_preds)
+print(f"Average validation score from all folds: {np.mean(val_scores)}")
 submission['Transported'] = pred
 submission['Transported'] = np.where(
     submission['Transported'] > 0.5, True, False)
