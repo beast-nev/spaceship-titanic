@@ -25,7 +25,7 @@ y_train = x_train["Transported"]
 x_train = x_train.drop(columns=["Transported", ])
 
 float_features = ["Age", "RoomService",
-                  "FoodCourt", "ShoppingMall", "Spa", "VRDeck", "total_spent", "most_spent", "least_spent", "std_spent", ]
+                  "FoodCourt", "ShoppingMall", "Spa", "VRDeck", "total_spent", "most_spent", "least_spent", "std_spent", "kurt_spent", "mean_spent"]
 
 label_encoders = ["FirstName",
                   "LastName",
